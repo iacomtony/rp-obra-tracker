@@ -15,8 +15,8 @@ import {
   Pencil,
   PieChart as PieChartIcon,
   Plus,
+  Printer,
   Receipt,
-  ScanLine,
   Search,
   Settings2,
   Trash2,
@@ -65,6 +65,7 @@ type Invoice = {
   issue_date: string | null
   total_amount: number
   notes: string | null
+  partner_id: string | null
   created_at: string
   updated_at: string
 }
@@ -112,6 +113,7 @@ type InvoicePayload = {
   supplier: string
   issueDate: string
   notes: string
+  partnerId: string
   items: InvoiceItemPayload[]
 }
 
@@ -122,7 +124,8 @@ function formatCurrency(value: number) {
   return value.toLocaleString('pt-BR', {
     style: 'currency',
     currency: 'BRL',
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   })
 }
 
@@ -582,6 +585,7 @@ function App() {
         issue_date: payload.issueDate || null,
         total_amount: totalAmount,
         notes: payload.notes || null,
+        partner_id: payload.partnerId || null,
       })
       .select()
       .single()
@@ -639,6 +643,7 @@ function App() {
         issue_date: payload.issueDate || null,
         total_amount: totalAmount,
         notes: payload.notes || null,
+        partner_id: payload.partnerId || null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', editingInvoice.id)
@@ -704,6 +709,77 @@ function App() {
 
   async function handleLogout() {
     await supabase.auth.signOut()
+  }
+
+  function handlePrint() {
+    if (!selectedProject) return
+
+    const lines = filteredInvoices.map((invoice) => {
+      const items = invoiceItems.filter((i) => i.invoice_id === invoice.id)
+      const partner = partners.find((p) => p.id === invoice.partner_id)
+      return { invoice, items, partner }
+    })
+
+    const totalGeral = filteredInvoices.reduce((s, inv) => s + Number(inv.total_amount ?? 0), 0)
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Relatório — ${selectedProject.name}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; color: #14213d; padding: 32px; font-size: 14px; }
+    h1 { font-size: 22px; font-weight: 700; margin-bottom: 2px; }
+    .sub { color: #6981a8; margin-bottom: 24px; font-size: 13px; }
+    .invoice-block { margin-bottom: 28px; page-break-inside: avoid; }
+    .invoice-header { background: #f4f8ff; padding: 10px 14px; border-radius: 8px; margin-bottom: 8px; }
+    .invoice-title { font-weight: 700; font-size: 15px; }
+    .invoice-meta { color: #6981a8; font-size: 12px; margin-top: 2px; }
+    table { width: 100%; border-collapse: collapse; }
+    th { text-align: left; padding: 7px 10px; font-size: 12px; color: #6981a8; border-bottom: 2px solid #edf4ff; }
+    td { padding: 7px 10px; border-bottom: 1px solid #f4f8ff; }
+    .val { text-align: right; }
+    .total-row td { font-weight: 700; border-top: 2px solid #edf4ff; background: #f9fbff; }
+    .grand-total { text-align: right; margin-top: 24px; font-size: 16px; font-weight: 700; border-top: 2px solid #14213d; padding-top: 12px; }
+  </style>
+</head>
+<body>
+  <h1>RP OBRA TRACKER</h1>
+  <p class="sub">Relatório de notas fiscais — ${selectedProject.name} — Emitido em ${new Date().toLocaleDateString('pt-BR')}</p>
+  ${lines
+    .map(
+      ({ invoice, items, partner }) => `
+    <div class="invoice-block">
+      <div class="invoice-header">
+        <div class="invoice-title">Nota ${invoice.invoice_number}${invoice.supplier ? ` — ${invoice.supplier}` : ''}</div>
+        <div class="invoice-meta">Data: ${invoice.issue_date || 'Sem data'}${partner ? ` &nbsp;|&nbsp; Sócio: ${partner.name}` : ''}</div>
+      </div>
+      <table>
+        <tr><th>Descrição</th><th>Qtd</th><th>Centro de custo</th><th class="val">Valor</th></tr>
+        ${items
+          .map((item) => {
+            const center = costCenters.find((c) => c.id === item.cost_center_id)
+            return `<tr><td>${item.description}</td><td>${item.quantity}</td><td>${center?.name ?? '—'}</td><td class="val">${formatCurrency(item.amount)}</td></tr>`
+          })
+          .join('')}
+        <tr class="total-row"><td colspan="3">Total da nota</td><td class="val">${formatCurrency(Number(invoice.total_amount))}</td></tr>
+      </table>
+    </div>`,
+    )
+    .join('')}
+  <p class="grand-total">Total geral: ${formatCurrency(totalGeral)}</p>
+</body>
+</html>`
+
+    const w = window.open('', '_blank')
+    if (!w) return
+    w.document.write(html)
+    w.document.close()
+    w.focus()
+    setTimeout(() => {
+      w.print()
+    }, 300)
   }
 
   function applySearchAndClose() {
@@ -1079,7 +1155,11 @@ function App() {
               </section>
             </div>
 
-            <div className="mt-6 grid gap-6 xl:grid-cols-[1.18fr_0.92fr]">
+            {/* Mobile: Resumo da obra → Resumo rápido → Centros → Sócios
+                Desktop xl: [Resumo da obra | Sócios] row-1 / [Centros | Resumo rápido] row-2 */}
+            <div className="mt-6 flex flex-col gap-6 xl:grid xl:grid-cols-[1.18fr_0.92fr]">
+
+              {/* Resumo da obra — mobile: 1º / desktop: row-1 col-1 (auto) */}
               <section className="glass-card h-full rounded-[36px] p-5 sm:p-6">
                 <SectionHeader
                   title="Resumo da obra"
@@ -1087,20 +1167,16 @@ function App() {
                   action="Atual"
                 />
 
-                <div className="mt-5 grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-                  <div className="flex items-center justify-center rounded-[30px] bg-[rgba(255,255,255,0.54)] p-5">
-                    <div className="mini-ring">
-                      <div className="mini-ring-content text-center">
-                        <p className="text-sm text-[#6981a8]">Margem estimada</p>
-                        <h3 className="mt-1 text-[1.3rem] font-semibold tracking-[-0.04em] text-[#14213d] sm:text-[1.5rem]">
-                          {formatCurrency(estimatedMargin)}
-                        </h3>
-                      </div>
-                    </div>
+                <div className="mt-5 grid gap-6 lg:grid-cols-2">
+                  <div className="flex flex-col items-center justify-center rounded-[30px] bg-[rgba(255,255,255,0.54)] p-5">
+                    <p className="mb-3 text-sm font-semibold text-[#14213d]">Gastos por centro</p>
+                    <SpendingPieChart costCenters={costCentersWithExtras} totalSpent={projectSpent} />
                   </div>
 
                   <div className="rounded-[30px] bg-[rgba(255,255,255,0.54)] p-5">
-                    <div className="grid gap-3">
+                    <p className="mb-4 text-sm font-semibold text-[#14213d]">Gasto por sócio</p>
+                    <PartnerCylinders partners={partners} invoices={invoices} />
+                    <div className="mt-5 grid gap-2">
                       <SummaryRow label="Custo acumulado" value={formatCurrency(projectSpent)} />
                       <SummaryRow label="Venda projetada" value={formatCurrency(projectSaleValue)} />
                       <SummaryRow label="Sócios" value={String(partners.length)} />
@@ -1110,35 +1186,37 @@ function App() {
                 </div>
               </section>
 
-              <section className="glass-card h-full rounded-[36px] p-5 sm:p-6">
+              {/* Resumo rápido — mobile: 2º / desktop: row-2 col-2 (explicit) */}
+              <section className="glass-card h-full rounded-[36px] p-5 sm:p-6 xl:col-start-2 xl:row-start-2">
                 <SectionHeader
                   title="Resumo rápido"
-                  subtitle="Dados principais para decisão"
+                  subtitle="Gastos por centro de custo"
                   action="Atual"
                 />
 
-                <div className="mt-5 grid gap-3">
-                  <MiniInsight
-                    icon={<Receipt size={18} />}
-                    title="Notas processadas"
-                    value={String(invoices.length)}
-                  />
-                  <MiniInsight
-                    icon={<ScanLine size={18} />}
-                    title="Itens reconhecidos"
-                    value={String(invoiceItems.length)}
-                  />
-                  <MiniInsight
-                    icon={<TrendingUp size={18} />}
-                    title="Centros cadastrados"
-                    value={String(costCenters.length)}
-                  />
+                <div className="mt-5 max-h-[340px] space-y-2 overflow-y-auto pr-1">
+                  {costCentersWithExtras.length === 0 ? (
+                    <EmptyCard text="Nenhum centro de custo cadastrado ainda." />
+                  ) : (
+                    costCentersWithExtras.map((center) => (
+                      <div
+                        key={center.id}
+                        className="metric-card flex items-center justify-between rounded-[20px] px-4 py-3"
+                      >
+                        <span className="min-w-0 truncate text-sm font-medium text-[#14213d]">
+                          {center.name}
+                        </span>
+                        <span className="ml-3 shrink-0 text-sm font-semibold text-[#2f7df6]">
+                          {formatCurrency(center.spent)}
+                        </span>
+                      </div>
+                    ))
+                  )}
                 </div>
               </section>
-            </div>
 
-            <div className="mt-6 grid gap-6 xl:grid-cols-[1.18fr_0.92fr]">
-              <section className="glass-card h-full rounded-[36px] p-5 sm:p-6">
+              {/* Centros de custo — mobile: 3º / desktop: row-2 col-1 (auto) */}
+              <section className="glass-card h-full rounded-[36px] p-5 sm:p-6 xl:col-start-1 xl:row-start-2">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h2 className="section-title">Centros de custo</h2>
@@ -1298,7 +1376,8 @@ function App() {
                 )}
               </section>
 
-              <section className="glass-card h-full rounded-[36px] p-5 sm:p-6">
+              {/* Sócios — mobile: 4º / desktop: row-1 col-2 (explicit) */}
+              <section className="glass-card h-full rounded-[36px] p-5 sm:p-6 xl:col-start-2 xl:row-start-1">
                 <SectionHeader
                   title="Sócios da obra"
                   subtitle="Participação societária editável"
@@ -1382,6 +1461,14 @@ function App() {
                     className="text-sm font-medium text-[#2f7df6]"
                   >
                     {showAllInvoices ? 'Mostrar menos' : 'Ver tudo'}
+                  </button>
+
+                  <button
+                    onClick={handlePrint}
+                    className="soft-pill inline-flex items-center gap-2 rounded-[18px] px-4 py-2.5 text-sm font-semibold"
+                  >
+                    <Printer size={16} />
+                    Imprimir relatório
                   </button>
                 </div>
               </div>
@@ -1665,6 +1752,7 @@ function App() {
                   supplier: editingInvoice.supplier || '',
                   issueDate: editingInvoice.issue_date || '',
                   notes: editingInvoice.notes || '',
+                  partnerId: editingInvoice.partner_id || '',
                   items:
                     invoiceItems
                       .filter((item) => item.invoice_id === editingInvoice.id)
@@ -1678,6 +1766,7 @@ function App() {
               : null
           }
           costCenters={costCenters}
+          partners={partners}
           onClose={() => {
             setInvoiceModalOpen(false)
             setEditingInvoice(null)
@@ -2064,6 +2153,7 @@ function InvoiceModal({
   mode,
   initialData,
   costCenters,
+  partners,
   onClose,
   onSubmit,
 }: {
@@ -2075,9 +2165,11 @@ function InvoiceModal({
     supplier: string
     issueDate: string
     notes: string
+    partnerId: string
     items: InvoiceItemPayload[]
   } | null
   costCenters: CostCenter[]
+  partners: Partner[]
   onClose: () => void
   onSubmit: (payload: InvoicePayload) => void
 }) {
@@ -2085,6 +2177,7 @@ function InvoiceModal({
   const [supplier, setSupplier] = useState('')
   const [issueDate, setIssueDate] = useState('')
   const [notes, setNotes] = useState('')
+  const [partnerId, setPartnerId] = useState('')
   const [items, setItems] = useState<InvoiceItemPayload[]>([createEmptyInvoiceItemPayload()])
 
   useEffect(() => {
@@ -2094,6 +2187,7 @@ function InvoiceModal({
     setSupplier(initialData?.supplier ?? '')
     setIssueDate(initialData?.issueDate ?? '')
     setNotes(initialData?.notes ?? '')
+    setPartnerId(initialData?.partnerId ?? '')
     setItems(
       initialData?.items && initialData.items.length > 0
         ? initialData.items
@@ -2133,6 +2227,7 @@ function InvoiceModal({
       supplier,
       issueDate,
       notes,
+      partnerId,
       items,
     })
   }
@@ -2143,6 +2238,24 @@ function InvoiceModal({
         <Field label="Número da nota" value={invoiceNumber} onChange={setInvoiceNumber} placeholder="NF 001" />
         <Field label="Fornecedor" value={supplier} onChange={setSupplier} placeholder="Fornecedor" />
         <Field label="Data de emissão" value={issueDate} onChange={setIssueDate} type="date" />
+
+        {partners.length > 0 && (
+          <div>
+            <label className="mb-2 block text-sm font-medium text-[#4a648d]">Sócio responsável</label>
+            <select
+              value={partnerId}
+              onChange={(event) => setPartnerId(event.target.value)}
+              className="w-full rounded-[18px] border border-[rgba(79,126,196,0.12)] bg-white/80 px-4 py-3 outline-none"
+            >
+              <option value="">Sem sócio vinculado</option>
+              {partners.map((partner) => (
+                <option key={partner.id} value={partner.id}>
+                  {partner.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className="rounded-[24px] border border-[rgba(79,126,196,0.12)] bg-white/50 p-4">
           <div className="mb-4 flex items-center justify-between gap-3">
@@ -2515,33 +2628,6 @@ function SummaryRow({
   )
 }
 
-function MiniInsight({
-  icon,
-  title,
-  value,
-}: {
-  icon: ReactNode
-  title: string
-  value: string
-}) {
-  return (
-    <div className="metric-card flex items-center justify-between rounded-[24px] px-4 py-4">
-      <div className="flex items-center gap-3">
-        <div className="soft-pill flex h-11 w-11 items-center justify-center rounded-[18px]">
-          {icon}
-        </div>
-
-        <div>
-          <p className="font-semibold text-[#14213d]">{title}</p>
-          <p className="text-sm text-[#6f87ad]">Resumo rápido</p>
-        </div>
-      </div>
-
-      <div className="text-base font-semibold text-[#14213d] sm:text-lg">{value}</div>
-    </div>
-  )
-}
-
 function InfoBadge({
   icon,
   label,
@@ -2565,6 +2651,169 @@ function BottomItem({
   active?: boolean
 }) {
   return <button className={active ? 'text-[#2f7df6]' : 'text-[#264874]'}>{icon}</button>
+}
+
+// ─── Gráfico de pizza (gastos por centro de custo) ───────────────────────────
+
+const CHART_COLORS = [
+  '#2f7df6', '#5aa3ff', '#a8c6ff',
+  '#e87b2a', '#f9b84a',
+  '#27ae7f', '#68d1a6', '#9b59b6',
+]
+
+function SpendingPieChart({
+  costCenters,
+  totalSpent,
+}: {
+  costCenters: Array<{ id: string; name: string; spent: number }>
+  totalSpent: number
+}) {
+  const cx = 90, cy = 90, r = 72, innerR = 44, size = 180
+
+  const segments = costCenters
+    .filter((c) => c.spent > 0)
+    .slice(0, 8)
+    .map((c, i) => ({
+      label: c.name,
+      percent: (c.spent / totalSpent) * 100,
+      color: CHART_COLORS[i % CHART_COLORS.length],
+    }))
+
+  if (segments.length === 0) {
+    return (
+      <div className="flex h-[180px] w-[180px] flex-col items-center justify-center rounded-full bg-[rgba(47,125,246,0.06)]">
+        <p className="text-center text-xs text-[#6981a8]">Sem gastos<br />registrados</p>
+      </div>
+    )
+  }
+
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  let currentAngle = -90
+
+  const arcs = segments.map((seg) => {
+    const startAngle = currentAngle
+    const sweep = (seg.percent / 100) * 360
+    currentAngle += sweep
+    const endAngle = currentAngle - 0.4
+
+    const x1 = cx + r * Math.cos(toRad(startAngle))
+    const y1 = cy + r * Math.sin(toRad(startAngle))
+    const x2 = cx + r * Math.cos(toRad(endAngle))
+    const y2 = cy + r * Math.sin(toRad(endAngle))
+    const ix1 = cx + innerR * Math.cos(toRad(startAngle))
+    const iy1 = cy + innerR * Math.sin(toRad(startAngle))
+    const ix2 = cx + innerR * Math.cos(toRad(endAngle))
+    const iy2 = cy + innerR * Math.sin(toRad(endAngle))
+    const large = sweep > 180 ? 1 : 0
+
+    return {
+      ...seg,
+      path: `M ${ix1} ${iy1} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} L ${ix2} ${iy2} A ${innerR} ${innerR} 0 ${large} 0 ${ix1} ${iy1} Z`,
+    }
+  })
+
+  return (
+    <div className="flex flex-col items-center gap-3">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {arcs.map((arc, i) => (
+          <path key={i} d={arc.path} fill={arc.color} />
+        ))}
+        <text x={cx} y={cy - 7} textAnchor="middle" fontSize="9" fill="#6981a8">Total gasto</text>
+        <text x={cx} y={cy + 9} textAnchor="middle" fontSize="12" fontWeight="700" fill="#14213d">
+          {totalSpent.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })}
+        </text>
+      </svg>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+        {arcs.map((seg, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <div className="h-2 w-2 shrink-0 rounded-full" style={{ background: seg.color }} />
+            <span className="truncate text-xs text-[#6981a8]">{seg.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── Cilindros 3D por sócio ───────────────────────────────────────────────────
+
+const PARTNER_COLORS = [
+  { light: '#e05c2a', dark: '#b33d17' },
+  { light: '#e0962a', dark: '#b37318' },
+  { light: '#2f7df6', dark: '#1a5cb8' },
+  { light: '#27ae7f', dark: '#1a7e5c' },
+  { light: '#9b59b6', dark: '#7b3ea0' },
+]
+
+function PartnerCylinder3D({
+  percent,
+  colors,
+  label,
+}: {
+  percent: number
+  colors: { light: string; dark: string }
+  label: string
+}) {
+  const w = 44, ry = 10, maxBodyH = 100
+  const bodyH = Math.max((percent / 100) * maxBodyH, 2)
+  const svgH = maxBodyH + ry * 4 + 6
+  const bottomY = svgH - ry - 2
+  const topY = bottomY - bodyH
+  const cxVal = 5 + w / 2
+  const gradId = `cyl-${label.replace(/[^a-zA-Z0-9]/g, '')}`
+
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <span className="text-sm font-bold text-[#14213d]">{Math.round(percent)}%</span>
+      <svg width={w + 10} height={svgH} viewBox={`0 0 ${w + 10} ${svgH}`}>
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor={colors.dark} />
+            <stop offset="40%" stopColor={colors.light} />
+            <stop offset="100%" stopColor={colors.dark} />
+          </linearGradient>
+        </defs>
+        <rect x={5} y={topY} width={w} height={bodyH} fill={`url(#${gradId})`} />
+        <ellipse cx={cxVal} cy={bottomY} rx={w / 2} ry={ry} fill={colors.dark} />
+        <ellipse cx={cxVal} cy={topY} rx={w / 2} ry={ry} fill={colors.light} />
+      </svg>
+      <span className="max-w-[64px] text-center text-xs leading-tight text-[#6981a8]">{label.split(' ')[0]}</span>
+    </div>
+  )
+}
+
+function PartnerCylinders({
+  partners,
+  invoices,
+}: {
+  partners: Partner[]
+  invoices: Invoice[]
+}) {
+  if (partners.length === 0) {
+    return <p className="text-sm text-[#6981a8]">Nenhum sócio cadastrado.</p>
+  }
+
+  const spending = partners.map((p) => ({
+    partner: p,
+    spent: invoices
+      .filter((inv) => inv.partner_id === p.id)
+      .reduce((sum, inv) => sum + Number(inv.total_amount ?? 0), 0),
+  }))
+
+  const maxSpent = Math.max(...spending.map((s) => s.spent), 1)
+
+  return (
+    <div className="flex items-end justify-center gap-6 py-2">
+      {spending.map(({ partner, spent }, i) => (
+        <PartnerCylinder3D
+          key={partner.id}
+          percent={(spent / maxSpent) * 100}
+          colors={PARTNER_COLORS[i % PARTNER_COLORS.length]}
+          label={partner.name}
+        />
+      ))}
+    </div>
+  )
 }
 
 export default App

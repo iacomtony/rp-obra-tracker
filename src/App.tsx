@@ -134,9 +134,20 @@ function formatPercent(value: number) {
 }
 
 function numberValue(value: string) {
-  const normalized = value.replace(/\./g, '').replace(',', '.').trim()
-  const parsed = Number(normalized)
-  return Number.isFinite(parsed) ? parsed : 0
+  const trimmed = value.trim()
+  if (!trimmed) return 0
+  if (trimmed.includes('.') && trimmed.includes(',')) {
+    const lastComma = trimmed.lastIndexOf(',')
+    const lastDot = trimmed.lastIndexOf('.')
+    if (lastComma > lastDot) {
+      return Number(trimmed.replace(/\./g, '').replace(',', '.')) || 0
+    }
+    return Number(trimmed.replace(/,/g, '')) || 0
+  }
+  if (trimmed.includes(',')) {
+    return Number(trimmed.replace(/\./g, '').replace(',', '.')) || 0
+  }
+  return Number(trimmed) || 0
 }
 
 function normalizeItemName(value: string) {
@@ -962,7 +973,7 @@ function App() {
   }
 
   return (
-    <main className="app-shell min-h-screen px-4 pb-28 pt-6 sm:px-6 lg:px-8">
+    <main className="app-shell min-h-screen overflow-x-hidden px-4 pb-28 pt-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <header className="glass-card mb-6 rounded-[36px] p-5 sm:p-6">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
@@ -1109,14 +1120,14 @@ function App() {
                 </div>
               </section>
 
-              <section className="glass-card h-full rounded-[36px] p-5 sm:p-6">
+              <section className="glass-card flex h-full flex-col rounded-[36px] p-5 sm:p-6">
                 <SectionHeader
                   title="Cadastro de nota fiscal"
                   subtitle="Lançamento manual"
                   action="MVP"
                 />
 
-                <div className="mt-5 flex h-[calc(100%-3.25rem)] min-h-[280px] flex-col justify-center rounded-[32px] border-2 border-dashed border-[rgba(47,125,246,0.2)] bg-[rgba(255,255,255,0.48)] p-6 text-center">
+                <div className="mt-5 flex min-h-[280px] flex-1 flex-col justify-center rounded-[32px] border-2 border-dashed border-[rgba(47,125,246,0.2)] bg-[rgba(255,255,255,0.48)] p-6 text-center">
                   <div className="soft-pill mx-auto flex h-14 w-14 items-center justify-center rounded-[20px]">
                     <Receipt size={24} />
                   </div>
@@ -1410,7 +1421,9 @@ function App() {
 
                         <div>
                           <p className="font-semibold text-[#14213d]">{partner.name}</p>
-                          <p className="text-sm text-[#6f87ad]">Sócio da obra</p>
+                          <p className="text-sm text-[#6f87ad]">
+                            {formatCurrency(invoices.filter((inv) => inv.partner_id === partner.id).reduce((sum, inv) => sum + Number(inv.total_amount ?? 0), 0))} gastos
+                          </p>
                         </div>
                       </div>
 
@@ -2236,7 +2249,7 @@ function InvoiceModal({
     <ModalShell title={mode === 'create' ? 'Nova nota fiscal' : 'Editar nota fiscal'} onClose={onClose}>
       <form className="space-y-4" onSubmit={submit}>
         <Field label="Número da nota" value={invoiceNumber} onChange={setInvoiceNumber} placeholder="NF 001" />
-        <Field label="Fornecedor" value={supplier} onChange={setSupplier} placeholder="Fornecedor" />
+        <Field label="Fornecedor" value={supplier} onChange={setSupplier} placeholder="Nome do fornecedor" />
         <Field label="Data de emissão" value={issueDate} onChange={setIssueDate} type="date" />
 
         {partners.length > 0 && (
@@ -2304,13 +2317,15 @@ function InvoiceModal({
                       label="Quantidade"
                       value={String(item.quantity || '')}
                       onChange={(value) => updateItem(index, { quantity: numberValue(value) })}
-                      placeholder="10"
+                      placeholder="1"
+                      inputMode="numeric"
                     />
                     <Field
-                      label="Valor do item"
-                      value={String(item.amount || '')}
+                      label="Valor do item (R$)"
+                      value={item.amount ? String(item.amount).replace('.', ',') : ''}
                       onChange={(value) => updateItem(index, { amount: numberValue(value) })}
-                      placeholder="250"
+                      placeholder="250,00"
+                      inputMode="decimal"
                     />
                   </div>
                 </div>
@@ -2529,12 +2544,14 @@ function Field({
   onChange,
   placeholder,
   type = 'text',
+  inputMode,
 }: {
   label: string
   value: string
   onChange: (value: string) => void
   placeholder?: string
   type?: string
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode']
 }) {
   return (
     <div>
@@ -2544,6 +2561,10 @@ function Field({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         type={type}
+        inputMode={inputMode}
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
         className="w-full rounded-[18px] border border-[rgba(79,126,196,0.12)] bg-white/80 px-4 py-3 outline-none"
       />
     </div>
@@ -2800,14 +2821,14 @@ function PartnerCylinders({
       .reduce((sum, inv) => sum + Number(inv.total_amount ?? 0), 0),
   }))
 
-  const maxSpent = Math.max(...spending.map((s) => s.spent), 1)
+  const totalSpent = Math.max(spending.reduce((sum, s) => sum + s.spent, 0), 1)
 
   return (
     <div className="flex items-end justify-center gap-6 py-2">
       {spending.map(({ partner, spent }, i) => (
         <PartnerCylinder3D
           key={partner.id}
-          percent={(spent / maxSpent) * 100}
+          percent={(spent / totalSpent) * 100}
           colors={PARTNER_COLORS[i % PARTNER_COLORS.length]}
           label={partner.name}
         />

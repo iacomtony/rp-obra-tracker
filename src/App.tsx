@@ -87,6 +87,7 @@ type InvoiceItemPayload = {
   quantity: number
   amount: number
   costCenterId: string
+  rawAmount?: string
 }
 
 type ProjectPayload = {
@@ -2322,8 +2323,8 @@ function InvoiceModal({
                     />
                     <Field
                       label="Valor do item (R$)"
-                      value={item.amount ? String(item.amount).replace('.', ',') : ''}
-                      onChange={(value) => updateItem(index, { amount: numberValue(value) })}
+                      value={item.rawAmount ?? (item.amount ? String(item.amount).replace('.', ',') : '')}
+                      onChange={(value) => updateItem(index, { rawAmount: value, amount: numberValue(value) })}
                       placeholder="250,00"
                       inputMode="decimal"
                     />

@@ -2319,14 +2319,12 @@ function InvoiceModal({
                       value={String(item.quantity || '')}
                       onChange={(value) => updateItem(index, { quantity: numberValue(value) })}
                       placeholder="1"
-                      inputMode="numeric"
                     />
                     <Field
                       label="Valor do item (R$)"
                       value={item.rawAmount ?? (item.amount ? String(item.amount).replace('.', ',') : '')}
                       onChange={(value) => updateItem(index, { rawAmount: value, amount: numberValue(value) })}
                       placeholder="250,00"
-                      inputMode="decimal"
                     />
                   </div>
                 </div>

@@ -1190,8 +1190,17 @@ function App() {
                     <PartnerCylinders partners={partners} invoices={invoices} />
                     <div className="mt-5 grid gap-2">
                       <SummaryRow label="Custo acumulado" value={formatCurrency(projectSpent)} />
-                      <SummaryRow label="Venda projetada" value={formatCurrency(projectSaleValue)} />
-                      <SummaryRow label="Sócios" value={String(partners.length)} />
+                      {partners.map((p) => (
+                        <SummaryRow
+                          key={p.id}
+                          label={p.name}
+                          value={formatCurrency(
+                            invoices
+                              .filter((inv) => inv.partner_id === p.id)
+                              .reduce((sum, inv) => sum + Number(inv.total_amount ?? 0), 0),
+                          )}
+                        />
+                      ))}
                       <SummaryRow label="Itens lançados" value={String(invoiceItems.length)} />
                     </div>
                   </div>
@@ -1459,10 +1468,10 @@ function App() {
             </div>
 
             <section className="glass-card mt-6 rounded-[36px] p-5 sm:p-6">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div>
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1">
                   <h2 className="section-title">Notas fiscais</h2>
-                  <p className="section-subtitle mt-1">Cadastro manual com edição e exclusão</p>
+                  <p className="section-subtitle">Cadastro manual com edição e exclusão</p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
@@ -1536,7 +1545,7 @@ function App() {
                 </div>
               ) : null}
 
-              <div className="mt-4 grid gap-3 lg:grid-cols-5">
+              <div className="mt-4 flex flex-col gap-3 sm:grid sm:grid-cols-2 lg:grid-cols-5">
                 <input
                   value={searchTerm}
                   onChange={(event) => {
@@ -1544,18 +1553,20 @@ function App() {
                     setSearchDraft(event.target.value)
                   }}
                   placeholder="Buscar por nota, item ou centro"
-                  className="rounded-[18px] border border-[rgba(93,133,201,0.12)] bg-white/80 px-4 py-3 outline-none lg:col-span-2"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  className="w-full rounded-[18px] border border-[rgba(93,133,201,0.12)] bg-white/80 px-4 py-3 outline-none sm:col-span-2 lg:col-span-2"
                 />
                 <input
                   type="month"
                   value={filterMonth}
                   onChange={(event) => setFilterMonth(event.target.value)}
-                  className="rounded-[18px] border border-[rgba(93,133,201,0.12)] bg-white/80 px-4 py-3 outline-none"
+                  className="w-full rounded-[18px] border border-[rgba(93,133,201,0.12)] bg-white/80 px-4 py-3 outline-none"
                 />
                 <select
                   value={filterCenterId}
                   onChange={(event) => setFilterCenterId(event.target.value)}
-                  className="rounded-[18px] border border-[rgba(93,133,201,0.12)] bg-white/80 px-4 py-3 outline-none"
+                  className="w-full rounded-[18px] border border-[rgba(93,133,201,0.12)] bg-white/80 px-4 py-3 outline-none"
                 >
                   <option value="">Todos os centros</option>
                   {costCenters.map((center) => (
@@ -1564,7 +1575,7 @@ function App() {
                     </option>
                   ))}
                 </select>
-                <div className="flex items-center justify-end">
+                <div className="flex items-center sm:justify-end">
                   <button
                     onClick={clearAllFilters}
                     className="text-sm font-medium text-[#2f7df6]"
@@ -2485,8 +2496,8 @@ function ModalShell({
   onClose: () => void
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 py-6">
-      <div className="glass-card max-h-[92vh] w-full max-w-3xl overflow-auto rounded-[32px] p-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+      <div className="max-h-[92vh] w-full max-w-3xl overflow-auto rounded-[32px] bg-white p-6 shadow-2xl"  style={{boxShadow: '0 32px 80px rgba(20,33,61,0.18)'}}>
         <div className="mb-5 flex items-center justify-between gap-4">
           <h2 className="text-2xl font-semibold tracking-[-0.04em] text-[#14213d]">{title}</h2>
           <button onClick={onClose} className="soft-pill rounded-[16px] px-4 py-2 text-sm font-semibold">
